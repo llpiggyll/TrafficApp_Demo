@@ -12,6 +12,9 @@ export interface LtaIncidentRaw {
 
 export interface LtaCameraRaw {
   CameraID: string;
+  Expressway?: string;
+  Road?: string;
+  Location?: string;
   Latitude: number;
   Longitude: number;
   ImageLink: string;
@@ -41,6 +44,7 @@ export function parseLtaMessage(msg: string, type: string) {
   let direction = 'Both bounds';
   let timeAgo = 'Recently';
   let advisory = msg;
+  let expresswayCode = '';
 
   const timeMatch = msg.match(/\((\d+\/\d+)\)?\s*(\d{1,2}:\d{2})/);
   if (timeMatch) {
@@ -51,10 +55,10 @@ export function parseLtaMessage(msg: string, type: string) {
   // Extract expressway acronyms (CTE, PIE, AYE, KJE, BKE, SLE, TPE, ECP, MCE, KPE)
   const expresswayMatch = msg.match(/\b(CTE|PIE|AYE|KJE|BKE|SLE|TPE|ECP|MCE|KPE)\b/i);
   if (expresswayMatch) {
-    const exp = expresswayMatch[1].toUpperCase();
+    expresswayCode = expresswayMatch[1].toUpperCase();
     const towardsMatch = msg.match(/towards\s+([A-Za-z0-9\s]+?)(?:\)|before|after|\.)/i);
     const towards = towardsMatch ? towardsMatch[1].trim() : 'City';
-    road = `${exp} (${towards}-bound)`;
+    road = `${expresswayCode} (${towards}-bound)`;
     direction = `Towards ${towards}`;
   } else {
     const onMatch = msg.match(/on\s+([A-Za-z0-9\s]+?)(?:\s+\(towards|\s+before|\s+after|\.)/i);
@@ -63,7 +67,7 @@ export function parseLtaMessage(msg: string, type: string) {
     }
   }
 
-  return { road, direction, timeAgo, advisory };
+  return { road, direction, timeAgo, advisory, expresswayCode };
 }
 
 export async function fetchLtaCameras(): Promise<LtaCameraRaw[]> {
@@ -98,18 +102,34 @@ export async function fetchLtaIncidents(): Promise<{
       return { incidents: INITIAL_INCIDENTS, source: 'fallback' };
     }
 
-    // Fetch cameras to match by proximity
+    // Fetch cameras directory
     const cameras: LtaCameraRaw[] = await fetchLtaCameras();
 
     const parsed: Incident[] = rawList.map((raw, idx) => {
-      const { road, direction, timeAgo, advisory } = parseLtaMessage(raw.Message, raw.Type);
+      const { road, direction, timeAgo, advisory, expresswayCode } = parseLtaMessage(raw.Message, raw.Type);
       const coords = gpsToSvgCoords(raw.Latitude, raw.Longitude);
 
-      // Match closest camera geographically
+      // HIGHWAY-SPECIFIC CAMERA MATCHING:
+      // First, filter cameras that belong to the SAME expressway (e.g. CTE -> only CTE cameras)
+      let matchingCameras = cameras;
+      if (expresswayCode) {
+        const highwayFiltered = cameras.filter((c) => {
+          if (c.Expressway && c.Expressway.toUpperCase() === expresswayCode) return true;
+          if (c.Location && c.Location.toUpperCase().includes(expresswayCode)) return true;
+          if (c.Road && c.Road.toUpperCase().includes(expresswayCode)) return true;
+          return false;
+        });
+
+        if (highwayFiltered.length > 0) {
+          matchingCameras = highwayFiltered;
+        }
+      }
+
+      // Pick the closest camera on that specific expressway
       let nearestCam: LtaCameraRaw | null = null;
-      if (cameras.length > 0) {
+      if (matchingCameras.length > 0) {
         let minDist = Infinity;
-        for (const c of cameras) {
+        for (const c of matchingCameras) {
           const dist = Math.hypot(c.Latitude - raw.Latitude, c.Longitude - raw.Longitude);
           if (dist < minDist) {
             minDist = dist;
@@ -123,6 +143,13 @@ export async function fetchLtaIncidents(): Promise<{
 
       const reportedTime = raw.ReportedTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const displayTimeAgo = raw.TimeAgo || timeAgo || 'Recently';
+
+      // Real expressway specific camera location title
+      const cameraLocation =
+        nearestCam?.Location ||
+        (expresswayCode ? `${expresswayCode} Corridor Surveillance` : road);
+
+      const cameraName = nearestCam ? `Cam ${nearestCam.CameraID}` : `Cam 1704`;
 
       const defaultFallbackImage =
         'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9';
@@ -141,8 +168,8 @@ export async function fetchLtaIncidents(): Promise<{
         normalSpeed: 70,
         delayMinutes: isSevere ? 20 : 6,
         officialAdvisory: advisory || 'Proceed with caution and allow extra traveling time.',
-        cameraName: nearestCam ? `Cam ${nearestCam.CameraID}` : `Cam ${1700 + idx}`,
-        cameraLocation: road,
+        cameraName,
+        cameraLocation,
         cameraImage: nearestCam?.ImageLink || defaultFallbackImage,
         coordinates: {
           x: coords.x,
