@@ -1,0 +1,7 @@
+{
+  "name": "SG Traffic Flow & Incident Telemetry",
+  "description": "Real-time traffic flow telemetry, corridor incident alerts, and emergency roadside assistance for Singapore expressways.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
