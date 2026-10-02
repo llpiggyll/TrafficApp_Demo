@@ -1,6 +1,7 @@
 /**
- * LTA DataMall Traffic Images Proxy
- * Endpoint: https://datamall2.mytransport.sg/ltaodataservice/Traffic-Imagesv2
+ * LTA DataMall & Live Singapore Traffic Images Proxy
+ * Primary Endpoint: https://datamall2.mytransport.sg/ltaodataservice/Traffic-Imagesv2
+ * Live Fallback Mirror: https://api.data.gov.sg/v1/transport/traffic-images
  */
 
 const FALLBACK_TRAFFIC_IMAGES = [
@@ -52,57 +53,88 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.LTA_ACCOUNT_KEY;
 
-  if (!apiKey) {
-    return res.status(200).json({
-      'odata.metadata': 'http://datamall2.mytransport.sg/ltaodataservice/$metadata#Traffic-Imagesv2',
-      source: 'fallback',
-      warning: 'LTA_ACCOUNT_KEY environment variable is not configured. Serving cached traffic camera feeds.',
-      value: FALLBACK_TRAFFIC_IMAGES
-    });
+  // 1. Try official LTA DataMall if API key is provided
+  if (apiKey) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const ltaResponse = await fetch(
+        'https://datamall2.mytransport.sg/ltaodataservice/Traffic-Imagesv2',
+        {
+          method: 'GET',
+          headers: {
+            AccountKey: apiKey,
+            accept: 'application/json'
+          },
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (ltaResponse.ok) {
+        const data = await ltaResponse.json();
+        if (data.value && data.value.length > 0) {
+          return res.status(200).json({
+            ...data,
+            source: 'live_lta_datamall',
+            timestamp: new Date().toISOString()
+          });
+        }
+      } else {
+        console.warn(`LTA DataMall returned status ${ltaResponse.status}. Attempting public live camera mirror...`);
+      }
+    } catch (err) {
+      console.warn('LTA DataMall fetch error:', err.message);
+    }
   }
 
+  // 2. Fetch from Singapore Government Public Live Traffic Camera API (real-time live feeds updated every ~1 min)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 7000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    const ltaResponse = await fetch(
-      'https://datamall2.mytransport.sg/ltaodataservice/Traffic-Imagesv2',
+    const publicResponse = await fetch(
+      'https://api.data.gov.sg/v1/transport/traffic-images',
       {
-        method: 'GET',
-        headers: {
-          AccountKey: apiKey,
-          accept: 'application/json'
-        },
         signal: controller.signal
       }
     );
 
     clearTimeout(timeoutId);
 
-    if (!ltaResponse.ok) {
-      console.warn(`LTA DataMall Images returned status ${ltaResponse.status}`);
-      return res.status(200).json({
-        'odata.metadata': 'http://datamall2.mytransport.sg/ltaodataservice/$metadata#Traffic-Imagesv2',
-        source: 'fallback',
-        warning: `Upstream LTA DataMall returned status ${ltaResponse.status}. Falling back to cached camera feeds.`,
-        value: FALLBACK_TRAFFIC_IMAGES
-      });
-    }
+    if (publicResponse.ok) {
+      const pubData = await publicResponse.json();
+      const items = pubData.items?.[0]?.cameras || [];
 
-    const data = await ltaResponse.json();
-    return res.status(200).json({
-      ...data,
-      source: 'live',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error fetching LTA Traffic-Imagesv2:', error);
-    return res.status(200).json({
-      'odata.metadata': 'http://datamall2.mytransport.sg/ltaodataservice/$metadata#Traffic-Imagesv2',
-      source: 'fallback',
-      warning: 'Network or timeout error contacting LTA DataMall. Serving fallback camera feeds.',
-      error: error.message,
-      value: FALLBACK_TRAFFIC_IMAGES
-    });
+      if (items.length > 0) {
+        const mappedValue = items.map((c) => ({
+          CameraID: String(c.camera_id),
+          Latitude: c.location?.latitude || 1.35,
+          Longitude: c.location?.longitude || 103.82,
+          ImageLink: c.image,
+          Timestamp: c.timestamp
+        }));
+
+        return res.status(200).json({
+          'odata.metadata': 'http://datamall2.mytransport.sg/ltaodataservice/$metadata#Traffic-Imagesv2',
+          source: 'live_public_datagov',
+          timestamp: pubData.items?.[0]?.timestamp || new Date().toISOString(),
+          total_cameras: mappedValue.length,
+          value: mappedValue
+        });
+      }
+    }
+  } catch (pubErr) {
+    console.warn('Public live traffic image fetch error:', pubErr.message);
   }
+
+  // 3. Fallback to cached default expressway cameras
+  return res.status(200).json({
+    'odata.metadata': 'http://datamall2.mytransport.sg/ltaodataservice/$metadata#Traffic-Imagesv2',
+    source: 'fallback',
+    warning: 'Serving cached traffic camera feeds.',
+    value: FALLBACK_TRAFFIC_IMAGES
+  });
 }

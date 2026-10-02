@@ -1,29 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
 interface HeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSearchSubmit?: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  secondsAgo: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   searchQuery,
   onSearchChange,
-  onSearchSubmit
+  onSearchSubmit,
+  onRefresh,
+  isRefreshing = false,
+  secondsAgo
 }) => {
-  const [secondsAgo, setSecondsAgo] = useState(12);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSecondsAgo((prev) => (prev >= 60 ? 4 : prev + 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const handleRefresh = () => {
-    setSecondsAgo(1);
-  };
-
   return (
     <header className="fixed top-0 left-0 md:left-16 right-0 h-14 bg-[#ffffff]/90 backdrop-blur-md border-b border-[#c4c5d7]/30 z-40 px-3 md:px-6 flex items-center justify-between gap-3">
       {/* Search Bar (Single line) */}
@@ -48,16 +41,28 @@ export const Header: React.FC<HeaderProps> = ({
         </form>
       </div>
 
-      {/* Top Corner: Small "Updated 12s ago" text + Profile icon */}
+      {/* Top Corner: Small "Updated 12s ago" text + Live Refresh Trigger */}
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
         <button
-          onClick={handleRefresh}
-          title="Click to refresh sensor sync"
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[#c4c5d7]/40 bg-[#ffffff] hover:bg-[#eff4ff] transition-colors"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          title="Click to fetch live LTA sensor & camera updates"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[#c4c5d7]/40 bg-[#ffffff] hover:bg-[#eff4ff] active:scale-95 transition-all shadow-sm"
         >
-          <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse"></span>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              isRefreshing ? 'bg-[#1d4ed8] animate-ping' : 'bg-[#16A34A] animate-pulse'
+            }`}
+          ></span>
           <span className="text-[10px] sm:text-xs font-semibold text-[#434655] uppercase tracking-wider tabular-nums">
-            Updated {secondsAgo}s ago
+            {isRefreshing ? 'Syncing...' : `Updated ${secondsAgo}s ago`}
+          </span>
+          <span
+            className={`material-symbols-outlined text-[14px] text-[#747686] ml-0.5 ${
+              isRefreshing ? 'animate-spin text-[#0037b0]' : 'hover:text-[#0037b0]'
+            }`}
+          >
+            refresh
           </span>
         </button>
 

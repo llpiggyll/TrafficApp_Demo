@@ -9,6 +9,69 @@ interface InteractiveMapProps {
   isFocusedCorridor?: boolean;
 }
 
+interface MapCamera {
+  id: string;
+  name: string;
+  location: string;
+  road: string;
+  x: number;
+  y: number;
+  image: string;
+}
+
+const DEFAULT_MAP_CAMERAS: MapCamera[] = [
+  {
+    id: '1704',
+    name: 'Cam 1704',
+    location: 'Braddell Flyover',
+    road: 'CTE (Central Expressway)',
+    x: 523,
+    y: 380,
+    image:
+      'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
+  },
+  {
+    id: '1001',
+    name: 'Cam 1001',
+    location: 'Woodsville Flyover',
+    road: 'PIE (Pan Island Expressway)',
+    x: 410,
+    y: 340,
+    image:
+      'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
+  },
+  {
+    id: '1302',
+    name: 'Cam 1302',
+    location: 'Clementi Ave 6',
+    road: 'AYE (Ayer Rajah Expressway)',
+    x: 310,
+    y: 433,
+    image:
+      'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
+  },
+  {
+    id: '1405',
+    name: 'Cam 1405',
+    location: 'Paya Lebar Flyover',
+    road: 'KPE Tunnel',
+    x: 610,
+    y: 325,
+    image:
+      'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
+  },
+  {
+    id: '1802',
+    name: 'Cam 1802',
+    location: 'Marine Parade',
+    road: 'ECP (East Coast Parkway)',
+    x: 650,
+    y: 425,
+    image:
+      'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
+  }
+];
+
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   incidents,
   selectedIncident,
@@ -18,7 +81,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 }) => {
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [showCameras, setShowCameras] = useState<boolean>(true);
-  const [activeCamTooltip, setActiveCamTooltip] = useState<string | null>(null);
+  const [activeCamera, setActiveCamera] = useState<MapCamera | null>(null);
 
   const handleZoom = (factor: number) => {
     setZoomLevel((prev) => Math.min(Math.max(prev * factor, 0.75), 2.5));
@@ -57,11 +120,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             <filter id="soft-shadow" x="-10%" y="-10%" width="120%" height="120%">
               <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.1" />
             </filter>
-            <linearGradient id="corridor-glow" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#16A34A" />
-              <stop offset="50%" stopColor="#D97706" />
-              <stop offset="100%" stopColor="#DC2626" />
-            </linearGradient>
           </defs>
 
           {/* Singapore Main Island Coastline Shape */}
@@ -97,7 +155,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           {/* === EXPRESSWAY FLOW LINES === */}
 
           {/* 1. PIE (Pan Island Expressway) */}
-          {/* East Section (Smooth > 60 km/h) */}
           <path
             d="M 520,330 Q 720,320 890,290"
             fill="none"
@@ -105,7 +162,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeWidth="6"
             strokeLinecap="round"
           />
-          {/* Woodsville Moderate Congestion (Amber 30-59 km/h) */}
           <path
             d="M 450,335 Q 485,332 520,330"
             fill="none"
@@ -113,7 +169,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeWidth="7"
             strokeLinecap="round"
           />
-          {/* West Section (Smooth > 60 km/h) */}
           <path
             d="M 160,370 Q 300,350 450,335"
             fill="none"
@@ -123,7 +178,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           />
 
           {/* 2. CTE (Central Expressway) */}
-          {/* North Section (Smooth) */}
           <path
             d="M 530,190 L 525,270"
             fill="none"
@@ -131,15 +185,13 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeWidth="6"
             strokeLinecap="round"
           />
-          {/* Braddell Incident Zone (Severe Congestion Red < 30 km/h) */}
           <path
             d="M 525,270 L 520,345"
             fill="none"
             stroke="#DC2626"
-            strokeWidth={selectedIncident?.id === 'inc-1' ? "9" : "7"}
+            strokeWidth={selectedIncident?.id?.includes('1') ? "9" : "7"}
             strokeLinecap="round"
           />
-          {/* South City-bound Transition (Amber) */}
           <path
             d="M 520,345 L 515,420"
             fill="none"
@@ -149,7 +201,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           />
 
           {/* 3. AYE (Ayer Rajah Expressway) */}
-          {/* Far West (Smooth) */}
           <path
             d="M 140,400 L 260,425"
             fill="none"
@@ -157,15 +208,13 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeWidth="6"
             strokeLinecap="round"
           />
-          {/* Clementi Collision Zone (Red < 30 km/h) */}
           <path
             d="M 260,425 L 360,440"
             fill="none"
             stroke="#DC2626"
-            strokeWidth={selectedIncident?.id === 'inc-3' ? "9" : "7"}
+            strokeWidth={selectedIncident?.id?.includes('3') ? "9" : "7"}
             strokeLinecap="round"
           />
-          {/* East Toward Marina (Smooth) */}
           <path
             d="M 360,440 Q 450,455 530,445"
             fill="none"
@@ -174,7 +223,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeLinecap="round"
           />
 
-          {/* 4. ECP (East Coast Parkway - Smooth) */}
+          {/* 4. ECP (East Coast Parkway) */}
           <path
             d="M 530,445 Q 690,430 880,310"
             fill="none"
@@ -183,7 +232,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeLinecap="round"
           />
 
-          {/* 5. KPE Tunnel (Kallang-Paya Lebar - Smooth Dash) */}
+          {/* 5. KPE Tunnel */}
           <path
             d="M 570,430 Q 600,340 610,230"
             fill="none"
@@ -193,7 +242,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeLinecap="round"
           />
 
-          {/* 6. SLE (Seletar Expressway - Smooth) */}
+          {/* 6. SLE (Seletar Expressway) */}
           <path
             d="M 350,215 Q 460,200 540,210"
             fill="none"
@@ -202,7 +251,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeLinecap="round"
           />
 
-          {/* 7. BKE (Bukit Timah Expressway - Woodlands) */}
+          {/* 7. BKE (Bukit Timah Expressway) */}
           <path
             d="M 360,185 L 375,320"
             fill="none"
@@ -211,8 +260,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             strokeLinecap="round"
           />
 
-          {/* Active Corridor Detour Route (when CTE incident is selected) */}
-          {selectedIncident?.id === 'inc-1' && (
+          {/* Detour Route when corridor focused */}
+          {selectedIncident && (
             <path
               d="M 528,240 Q 420,290 390,380 T 420,440"
               fill="none"
@@ -257,39 +306,32 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             <text x="351" y="258">BKE</text>
           </g>
 
-          {/* CCTV Camera Icons */}
-          {showCameras && (
-            <g fill="#0037B0" opacity="0.85">
-              <circle
-                cx="410"
-                cy="340"
-                r="4.5"
-                className="cursor-pointer hover:scale-125 transition-transform"
-                onClick={() => setActiveCamTooltip('Cam 1201: PIE Woodsville')}
-              />
-              <circle
-                cx="610"
-                cy="325"
-                r="4.5"
-                className="cursor-pointer hover:scale-125 transition-transform"
-                onClick={() => setActiveCamTooltip('Cam 1405: KPE Paya Lebar')}
-              />
-              <circle
-                cx="523"
-                cy="380"
-                r="4.5"
-                className="cursor-pointer hover:scale-125 transition-transform"
-                onClick={() => setActiveCamTooltip('Cam 1704: CTE Braddell')}
-              />
-              <circle
-                cx="650"
-                cy="425"
-                r="4.5"
-                className="cursor-pointer hover:scale-125 transition-transform"
-                onClick={() => setActiveCamTooltip('Cam 1802: ECP Marine Parade')}
-              />
-            </g>
-          )}
+          {/* CCTV Camera Interactive Nodes */}
+          {showCameras &&
+            DEFAULT_MAP_CAMERAS.map((cam) => (
+              <g
+                key={cam.id}
+                className="cursor-pointer group"
+                onClick={() => setActiveCamera(cam)}
+              >
+                <circle
+                  cx={cam.x}
+                  cy={cam.y}
+                  r="9"
+                  fill="#0037B0"
+                  fillOpacity="0.2"
+                  className="group-hover:scale-125 transition-transform"
+                />
+                <circle
+                  cx={cam.x}
+                  cy={cam.y}
+                  r="5.5"
+                  fill="#0037B0"
+                  stroke="#ffffff"
+                  strokeWidth="1.5"
+                />
+              </g>
+            ))}
 
           {/* === INCIDENT PINS (SIMPLE ICON ONLY) === */}
           {incidents.map((inc) => {
@@ -344,7 +386,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           })}
         </svg>
 
-        {/* Selected Incident Floating Overlay Tag (if detail selected) */}
+        {/* Selected Incident Floating Overlay Tag */}
         {selectedIncident && (
           <div
             className="absolute z-20 pointer-events-none bg-white px-3 py-1.5 rounded-lg shadow-lg border border-[#c4c5d7]/40 flex flex-col items-center"
@@ -410,7 +452,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </button>
       </div>
 
-      {/* Floating Live Telemetry Legend Chip (Bottom-left/Bottom-right) */}
+      {/* Floating Live Telemetry Legend Chip */}
       <div className="absolute bottom-20 md:bottom-4 right-3 md:right-4 bg-[#ffffff]/95 backdrop-blur-sm px-3 py-2 rounded-xl shadow-md border border-[#c4c5d7]/30 flex flex-col gap-1.5 max-w-xs z-10">
         <div className="flex items-center justify-between text-[11px] font-semibold text-[#434655] uppercase tracking-wider">
           <span>Speed Telemetry</span>
@@ -435,17 +477,56 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
       </div>
 
-      {/* Tooltip toast if camera clicked */}
-      {activeCamTooltip && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-[#0b1c30] text-white text-xs px-3 py-1.5 rounded-lg shadow-xl z-30 flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px] text-[#b7c4ff]">videocam</span>
-          <span>{activeCamTooltip}</span>
-          <button
-            onClick={() => setActiveCamTooltip(null)}
-            className="text-[#c4c5d7] hover:text-white ml-1 text-sm font-bold"
+      {/* LIVE CAMERA POPUP MODAL (When tapping ANY camera node on the map) */}
+      {activeCamera && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setActiveCamera(null)}
+        >
+          <div
+            className="relative bg-[#ffffff] rounded-2xl overflow-hidden shadow-2xl max-w-sm sm:max-w-md w-full border border-[#c4c5d7]/40 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
           >
-            ✕
-          </button>
+            {/* Header */}
+            <div className="p-3 bg-[#eff4ff] border-b border-[#c4c5d7]/30 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse"></span>
+                <span className="text-xs sm:text-sm font-bold text-[#0b1c30]">
+                  {activeCamera.name} • {activeCamera.location}
+                </span>
+              </div>
+              <button
+                onClick={() => setActiveCamera(null)}
+                className="w-7 h-7 rounded-full bg-[#dce9ff] hover:bg-[#c4c5d7] flex items-center justify-center text-xs font-bold text-[#0b1c30]"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Live Camera Snapshot */}
+            <div className="relative w-full aspect-video bg-black flex items-center justify-center">
+              <img
+                src={activeCamera.image}
+                alt={activeCamera.name}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.src =
+                    'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9';
+                }}
+              />
+              <div className="absolute top-2 left-2 bg-[#0b1c30]/85 px-2 py-0.5 rounded text-white text-[10px] font-mono flex items-center gap-1 shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse"></span>
+                LIVE CCTV STREAM
+              </div>
+            </div>
+
+            {/* Footer with road info */}
+            <div className="p-3 bg-white flex items-center justify-between text-xs text-[#565e74]">
+              <span className="font-semibold text-[#0b1c30]">{activeCamera.road}</span>
+              <span className="text-[11px] text-[#0037b0] font-medium">LTA TrafficScan Feed</span>
+            </div>
+          </div>
         </div>
       )}
     </div>

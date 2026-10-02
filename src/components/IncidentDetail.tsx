@@ -12,6 +12,9 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
 }) => {
   const [isNotified, setIsNotified] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [imgLoaded, setImgLoaded] = useState<boolean>(false);
+  const [imgError, setImgError] = useState<boolean>(false);
+  const [showFullCamModal, setShowFullCamModal] = useState<boolean>(false);
 
   const handleNotifyToggle = () => {
     const nextState = !isNotified;
@@ -25,6 +28,9 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
       setToastMessage(null);
     }, 2800);
   };
+
+  const reliableFallback =
+    'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9';
 
   return (
     <>
@@ -138,29 +144,33 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
                 {incident.cameraName} • {incident.cameraLocation}
               </span>
             </div>
-            <div className="relative w-full h-32 bg-[#dce9ff] rounded-lg overflow-hidden border border-[#c4c5d7]/40 shadow-inner">
+            <div
+              onClick={() => setShowFullCamModal(true)}
+              className="relative w-full h-36 bg-[#0b1c30] rounded-xl overflow-hidden border border-[#c4c5d7]/40 shadow-sm cursor-pointer group"
+            >
+              {!imgLoaded && !imgError && (
+                <div className="absolute inset-0 bg-[#dce9ff] animate-pulse flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[#0037b0] text-[24px]">videocam</span>
+                </div>
+              )}
               <img
-                src={incident.cameraImage}
+                src={imgError ? reliableFallback : (incident.cameraImage || reliableFallback)}
                 alt={`LTA CCTV ${incident.cameraLocation}`}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                  const parent = e.currentTarget.parentElement;
-                  if (parent && !parent.querySelector('.cctv-fallback')) {
-                    const fallback = document.createElement('div');
-                    fallback.className = 'cctv-fallback w-full h-full flex flex-col items-center justify-center bg-[#0b1c30] text-white p-3 text-center';
-                    fallback.innerHTML = `
-                      <span class="material-symbols-outlined text-[24px] text-[#b7c4ff] mb-1">videocam</span>
-                      <span class="text-xs font-mono">LIVE FEED: ${incident.cameraLocation}</span>
-                      <span class="text-[10px] text-gray-400 mt-0.5">Traffic moving at ${incident.currentSpeed} km/h</span>
-                    `;
-                    parent.appendChild(fallback);
-                  }
+                referrerPolicy="no-referrer"
+                onLoad={() => setImgLoaded(true)}
+                onError={() => {
+                  setImgError(true);
+                  setImgLoaded(true);
                 }}
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
               />
-              <div className="absolute top-2 left-2 bg-[#ffffff]/90 px-2 py-0.5 rounded text-[#0b1c30] text-[10px] font-mono flex items-center gap-1 shadow-sm">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ba1a1a] animate-pulse"></span>
-                REC {incident.reportedTime}
+              <div className="absolute top-2 left-2 bg-[#0b1c30]/85 px-2 py-0.5 rounded text-white text-[10px] font-mono flex items-center gap-1 shadow-sm backdrop-blur-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse"></span>
+                LIVE CCTV
+              </div>
+              <div className="absolute bottom-2 right-2 bg-black/70 px-1.5 py-0.5 rounded text-white text-[10px] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="material-symbols-outlined text-[13px]">fullscreen</span>
+                <span>Zoom</span>
               </div>
             </div>
           </div>
@@ -203,8 +213,8 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
         </div>
       </section>
 
-      {/* MOBILE BOTTOM SHEET (Bottom sheet on mobile) */}
-      <section className="md:hidden fixed left-0 right-0 bottom-16 z-50 bg-white rounded-t-3xl shadow-2xl border-t border-[#c4c5d7]/40 max-h-[82vh] overflow-y-auto flex flex-col pb-6">
+      {/* MOBILE BOTTOM SHEET (Bottom sheet on mobile - WITH LIVE CAMERA FEED) */}
+      <section className="md:hidden fixed left-0 right-0 bottom-16 z-50 bg-white rounded-t-3xl shadow-2xl border-t border-[#c4c5d7]/40 max-h-[85vh] overflow-y-auto flex flex-col pb-6 select-none">
         {/* Grab Handle & Back Row */}
         <div className="sticky top-0 bg-white/95 backdrop-blur-md px-4 pt-3 pb-2 z-10 border-b border-[#c4c5d7]/20 flex items-center justify-between">
           <button
@@ -280,6 +290,34 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
             </p>
           </div>
 
+          {/* Live Camera Feed on Mobile */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] uppercase tracking-wider text-[#565e74] font-medium">
+                Live Camera Feed
+              </span>
+              <span className="text-[11px] text-[#0037b0] font-semibold">
+                {incident.cameraName} • {incident.cameraLocation}
+              </span>
+            </div>
+            <div
+              onClick={() => setShowFullCamModal(true)}
+              className="relative w-full h-36 bg-[#0b1c30] rounded-xl overflow-hidden border border-[#c4c5d7]/40 shadow-sm"
+            >
+              <img
+                src={imgError ? reliableFallback : (incident.cameraImage || reliableFallback)}
+                alt={`LTA CCTV ${incident.cameraLocation}`}
+                referrerPolicy="no-referrer"
+                onError={() => setImgError(true)}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute top-2 left-2 bg-[#0b1c30]/85 px-2 py-0.5 rounded text-white text-[10px] font-mono flex items-center gap-1 shadow-sm backdrop-blur-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse"></span>
+                LIVE CCTV
+              </div>
+            </div>
+          </div>
+
           {/* Primary Action Button: "Notify me when cleared" */}
           <div className="pt-2 flex flex-col gap-2">
             <button
@@ -298,6 +336,44 @@ export const IncidentDetail: React.FC<IncidentDetailProps> = ({
           </div>
         </div>
       </section>
+
+      {/* FULLSCREEN CAMERA MODAL */}
+      {showFullCamModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-4"
+          onClick={() => setShowFullCamModal(false)}
+        >
+          <div
+            className="relative max-w-2xl w-full bg-[#0b1c30] rounded-2xl overflow-hidden shadow-2xl border border-white/20 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-3 bg-black/60 flex items-center justify-between text-white border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse"></span>
+                <span className="text-xs sm:text-sm font-bold">{incident.cameraName} • {incident.cameraLocation}</span>
+              </div>
+              <button
+                onClick={() => setShowFullCamModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="relative w-full aspect-video bg-black flex items-center justify-center">
+              <img
+                src={imgError ? reliableFallback : (incident.cameraImage || reliableFallback)}
+                alt="Full CCTV Feed"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div className="p-3 bg-black/60 text-white/80 text-xs flex items-center justify-between border-t border-white/10">
+              <span>{incident.roadFullName} ({incident.currentSpeed} km/h)</span>
+              <span className="text-[11px] text-[#16A34A]">Live Surveillance Feed</span>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

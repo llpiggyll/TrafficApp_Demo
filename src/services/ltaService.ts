@@ -6,6 +6,8 @@ export interface LtaIncidentRaw {
   Latitude: number;
   Longitude: number;
   Message: string;
+  ReportedTime?: string;
+  TimeAgo?: string;
 }
 
 export interface LtaCameraRaw {
@@ -13,6 +15,7 @@ export interface LtaCameraRaw {
   Latitude: number;
   Longitude: number;
   ImageLink: string;
+  Timestamp?: string;
 }
 
 // Convert GPS coordinates to SVG coordinate space (1000x620)
@@ -34,10 +37,9 @@ export function gpsToSvgCoords(lat: number, lng: number): { x: number; y: number
 
 // Parse LTA DataMall Message string into structured telemetry
 export function parseLtaMessage(msg: string, type: string) {
-  // Format example: "(12/2)14:42 Roadworks on KJE (towards BKE) before BKE Exit. Avoid lane 2."
   let road = 'Expressway';
   let direction = 'Both bounds';
-  let timeAgo = 'Just now';
+  let timeAgo = 'Recently';
   let advisory = msg;
 
   const timeMatch = msg.match(/\((\d+\/\d+)\)?\s*(\d{1,2}:\d{2})/);
@@ -55,7 +57,6 @@ export function parseLtaMessage(msg: string, type: string) {
     road = `${exp} (${towards}-bound)`;
     direction = `Towards ${towards}`;
   } else {
-    // Other roads (e.g. Telok Blangah Road)
     const onMatch = msg.match(/on\s+([A-Za-z0-9\s]+?)(?:\s+\(towards|\s+before|\s+after|\.)/i);
     if (onMatch) {
       road = onMatch[1].trim();
@@ -63,6 +64,21 @@ export function parseLtaMessage(msg: string, type: string) {
   }
 
   return { road, direction, timeAgo, advisory };
+}
+
+export async function fetchLtaCameras(): Promise<LtaCameraRaw[]> {
+  try {
+    const res = await fetch('/api/traffic-images');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.value) && data.value.length > 0) {
+        return data.value;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch cameras from /api/traffic-images:', err);
+  }
+  return [];
 }
 
 export async function fetchLtaIncidents(): Promise<{
@@ -82,27 +98,34 @@ export async function fetchLtaIncidents(): Promise<{
       return { incidents: INITIAL_INCIDENTS, source: 'fallback' };
     }
 
-    // Try fetching cameras to match
-    let cameras: LtaCameraRaw[] = [];
-    try {
-      const camRes = await fetch('/api/traffic-images');
-      if (camRes.ok) {
-        const camData = await camRes.json();
-        cameras = camData.value || [];
-      }
-    } catch {
-      // Ignore camera fetch error
-    }
+    // Fetch cameras to match by proximity
+    const cameras: LtaCameraRaw[] = await fetchLtaCameras();
 
     const parsed: Incident[] = rawList.map((raw, idx) => {
       const { road, direction, timeAgo, advisory } = parseLtaMessage(raw.Message, raw.Type);
       const coords = gpsToSvgCoords(raw.Latitude, raw.Longitude);
 
-      // Match closest camera or default
-      const nearestCam = cameras[idx % (cameras.length || 1)] || null;
+      // Match closest camera geographically
+      let nearestCam: LtaCameraRaw | null = null;
+      if (cameras.length > 0) {
+        let minDist = Infinity;
+        for (const c of cameras) {
+          const dist = Math.hypot(c.Latitude - raw.Latitude, c.Longitude - raw.Longitude);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestCam = c;
+          }
+        }
+      }
 
       const isSevere = /accident|collision/i.test(raw.Type) || /accident/i.test(raw.Message);
       const icon = isSevere ? 'car_crash' : /breakdown|stalled/i.test(raw.Message) ? 'warning' : 'minor_crash';
+
+      const reportedTime = raw.ReportedTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const displayTimeAgo = raw.TimeAgo || timeAgo || 'Recently';
+
+      const defaultFallbackImage =
+        'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9';
 
       return {
         id: `lta-${idx + 1}`,
@@ -111,18 +134,16 @@ export async function fetchLtaIncidents(): Promise<{
         direction,
         type: raw.Type || 'Traffic Hazard',
         severity: isSevere ? 'CRITICAL' : 'MODERATE',
-        reportedTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        timeAgo: timeAgo || 'Recently',
+        reportedTime,
+        timeAgo: displayTimeAgo,
         sensorId: `#LTA-DATAMALL-${idx + 101}`,
-        currentSpeed: isSevere ? 18 : 36,
+        currentSpeed: isSevere ? 16 : 42,
         normalSpeed: 70,
-        delayMinutes: isSevere ? 18 : 6,
+        delayMinutes: isSevere ? 20 : 6,
         officialAdvisory: advisory || 'Proceed with caution and allow extra traveling time.',
-        cameraName: nearestCam ? `Cam ${nearestCam.CameraID}` : 'Cam 1704',
+        cameraName: nearestCam ? `Cam ${nearestCam.CameraID}` : `Cam ${1700 + idx}`,
         cameraLocation: road,
-        cameraImage:
-          nearestCam?.ImageLink ||
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9',
+        cameraImage: nearestCam?.ImageLink || defaultFallbackImage,
         coordinates: {
           x: coords.x,
           y: coords.y,
@@ -136,7 +157,7 @@ export async function fetchLtaIncidents(): Promise<{
 
     return {
       incidents: parsed.length >= 3 ? parsed : [...parsed, ...INITIAL_INCIDENTS].slice(0, 5),
-      source: data.source === 'live' ? 'live' : 'fallback'
+      source: data.source?.includes('live') ? 'live' : 'fallback'
     };
   } catch (err) {
     console.warn('Failed to load incidents from /api/incidents:', err);

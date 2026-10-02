@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ScreenType, Incident, SavedPlace } from './types/traffic';
 import { INITIAL_INCIDENTS, INITIAL_SAVED_PLACES } from './data/mockData';
 import { Navigation } from './components/Navigation';
@@ -18,24 +18,45 @@ export default function App() {
   const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>(INITIAL_SAVED_PLACES);
   const [isMobileSheetExpanded, setIsMobileSheetExpanded] = useState<boolean>(false);
   const [dataSource, setDataSource] = useState<'live' | 'fallback'>('fallback');
+  const [secondsAgo, setSecondsAgo] = useState<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadData() {
+  // Live data fetcher
+  const loadData = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
       const result = await fetchLtaIncidents();
-      if (isMounted && result.incidents.length > 0) {
+      if (result.incidents.length > 0) {
         setIncidents(result.incidents);
         setDataSource(result.source);
       }
+      setSecondsAgo(0);
+    } catch (err) {
+      console.warn('Refresh error:', err);
+    } finally {
+      setIsRefreshing(false);
     }
-    loadData();
-    // Poll every 60s
-    const interval = setInterval(loadData, 60000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
   }, []);
+
+  // Initial load and periodic polling every 25s for timely live information
+  useEffect(() => {
+    loadData();
+
+    // Seconds counter
+    const secTimer = setInterval(() => {
+      setSecondsAgo((prev) => prev + 1);
+    }, 1000);
+
+    // Live polling every 25s
+    const pollInterval = setInterval(() => {
+      loadData();
+    }, 25000);
+
+    return () => {
+      clearInterval(secTimer);
+      clearInterval(pollInterval);
+    };
+  }, [loadData]);
 
   // Filter incidents by search query
   const filteredIncidents = incidents.filter((inc) => {
@@ -87,7 +108,6 @@ export default function App() {
 
   const handleNavSelect = (screen: ScreenType) => {
     setCurrentScreen(screen);
-    // If navigating back to map, keep or clear selection based on preference
     if (screen !== 'map') {
       setIsMobileSheetExpanded(false);
     }
@@ -104,7 +124,7 @@ export default function App() {
 
       {/* Main App Content Container (offset by desktop sidebar rail w-16) */}
       <div className="md:pl-16 min-h-screen flex flex-col">
-        {/* Floating Search Bar + "Updated 12s ago" Header (Shown on Map screen, or as global header) */}
+        {/* Floating Search Bar + "Updated Xs ago" Header with Real Sync Handler */}
         <Header
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -113,6 +133,9 @@ export default function App() {
               setSelectedIncident(filteredIncidents[0]);
             }
           }}
+          onRefresh={loadData}
+          isRefreshing={isRefreshing}
+          secondsAgo={secondsAgo}
         />
 
         {/* Content Body Below 56px Header */}
@@ -136,7 +159,7 @@ export default function App() {
                 />
               )}
 
-              {/* Full-screen Map Canvas with Traffic Flow Lines & Simple Incident Pins */}
+              {/* Full-screen Map Canvas with Traffic Flow Lines, Incident Pins & CCTV nodes */}
               <div className="flex-1 relative h-full bg-[#E5EEFF]/40 overflow-hidden">
                 <InteractiveMap
                   incidents={filteredIncidents}
@@ -147,7 +170,7 @@ export default function App() {
                 />
               </div>
 
-              {/* Mobile Bottom Sheet: If an incident is selected, show detail bottom sheet; otherwise show 3 nearest incidents */}
+              {/* Mobile Bottom Sheet */}
               {selectedIncident ? (
                 <div className="md:hidden">
                   <IncidentDetail
