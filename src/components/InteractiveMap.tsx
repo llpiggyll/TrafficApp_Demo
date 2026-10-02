@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
 import { Incident } from '../types/traffic';
 
 interface InteractiveMapProps {
@@ -7,6 +8,8 @@ interface InteractiveMapProps {
   onSelectIncident: (incident: Incident) => void;
   searchQuery?: string;
   isFocusedCorridor?: boolean;
+  userLocation?: { lat: number; lng: number; accuracy?: number } | null;
+  onCenterUserLocation?: () => void;
 }
 
 interface MapCamera {
@@ -14,10 +17,159 @@ interface MapCamera {
   name: string;
   location: string;
   road: string;
-  x: number;
-  y: number;
+  lat: number;
+  lng: number;
   image: string;
 }
+
+// Singapore Expressway Polyline GPS Coordinates for Traffic Flow Lines
+const EXPRESSWAY_CORRIDORS = [
+  // CTE Southbound (Central Expressway)
+  {
+    name: 'CTE Southbound (Seletar to AMK Ave 1)',
+    coords: [
+      [1.3882, 103.8645],
+      [1.3780, 103.8612],
+      [1.3650, 103.8580]
+    ] as [number, number][],
+    color: '#16A34A', // Smooth > 60 km/h
+    weight: 6,
+    speed: '68 km/h'
+  },
+  {
+    name: 'CTE AMK Ave 1 to Braddell (Compression)',
+    coords: [
+      [1.3650, 103.8580],
+      [1.3540, 103.8572],
+      [1.3431, 103.8568]
+    ] as [number, number][],
+    color: '#D97706', // Moderate 30-59 km/h
+    weight: 7,
+    speed: '34 km/h'
+  },
+  {
+    name: 'CTE Braddell Incident Bottleneck',
+    coords: [
+      [1.3431, 103.8568],
+      [1.3320, 103.8550],
+      [1.3210, 103.8530]
+    ] as [number, number][],
+    color: '#DC2626', // Congested < 30 km/h
+    weight: 8,
+    speed: '14 km/h'
+  },
+  {
+    name: 'CTE Moulmein to City (Recovery)',
+    coords: [
+      [1.3210, 103.8530],
+      [1.3090, 103.8490],
+      [1.2980, 103.8450],
+      [1.2850, 103.8400]
+    ] as [number, number][],
+    color: '#16A34A',
+    weight: 6,
+    speed: '62 km/h'
+  },
+
+  // PIE (Pan Island Expressway - Tuas to Changi)
+  {
+    name: 'PIE West (Tuas to Bukit Timah)',
+    coords: [
+      [1.3350, 103.7050],
+      [1.3420, 103.7450],
+      [1.3500, 103.7850],
+      [1.3450, 103.8200]
+    ] as [number, number][],
+    color: '#16A34A',
+    weight: 6,
+    speed: '75 km/h'
+  },
+  {
+    name: 'PIE Woodsville Stalled Vehicle Sector',
+    coords: [
+      [1.3450, 103.8200],
+      [1.3350, 103.8500],
+      [1.3250, 103.8650],
+      [1.3280, 103.8850]
+    ] as [number, number][],
+    color: '#D97706',
+    weight: 7,
+    speed: '42 km/h'
+  },
+  {
+    name: 'PIE East (Paya Lebar to Changi Airport)',
+    coords: [
+      [1.3280, 103.8850],
+      [1.3350, 103.9250],
+      [1.3480, 103.9650],
+      [1.3580, 103.9850]
+    ] as [number, number][],
+    color: '#16A34A',
+    weight: 6,
+    speed: '82 km/h'
+  },
+
+  // AYE (Ayer Rajah Expressway)
+  {
+    name: 'AYE West (Tuas to Jurong)',
+    coords: [
+      [1.3050, 103.6800],
+      [1.3150, 103.7250]
+    ] as [number, number][],
+    color: '#16A34A',
+    weight: 6,
+    speed: '74 km/h'
+  },
+  {
+    name: 'AYE Clementi Collision Bottleneck',
+    coords: [
+      [1.3150, 103.7250],
+      [1.3150, 103.7650],
+      [1.3050, 103.7850]
+    ] as [number, number][],
+    color: '#DC2626',
+    weight: 8,
+    speed: '22 km/h'
+  },
+  {
+    name: 'AYE East (One-North to MCE/Marina)',
+    coords: [
+      [1.3050, 103.7850],
+      [1.2850, 103.8150],
+      [1.2720, 103.8450]
+    ] as [number, number][],
+    color: '#16A34A',
+    weight: 6,
+    speed: '65 km/h'
+  },
+
+  // ECP (East Coast Parkway)
+  {
+    name: 'ECP Corridor',
+    coords: [
+      [1.2720, 103.8550],
+      [1.2950, 103.8900],
+      [1.3050, 103.9300],
+      [1.3350, 103.9800]
+    ] as [number, number][],
+    color: '#16A34A',
+    weight: 6,
+    speed: '78 km/h'
+  },
+
+  // BKE (Bukit Timah Expressway to Woodlands Checkpoint)
+  {
+    name: 'BKE Corridor',
+    coords: [
+      [1.3450, 103.7800],
+      [1.3850, 103.7750],
+      [1.4300, 103.7720]
+    ] as [number, number][],
+    color: '#16A34A',
+    weight: 6,
+    speed: '84 km/h'
+  }
+];
 
 const DEFAULT_MAP_CAMERAS: MapCamera[] = [
   {
@@ -25,8 +177,8 @@ const DEFAULT_MAP_CAMERAS: MapCamera[] = [
     name: 'Cam 1704',
     location: 'Braddell Flyover',
     road: 'CTE (Central Expressway)',
-    x: 523,
-    y: 380,
+    lat: 1.3431,
+    lng: 103.8568,
     image:
       'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
   },
@@ -35,383 +187,329 @@ const DEFAULT_MAP_CAMERAS: MapCamera[] = [
     name: 'Cam 1001',
     location: 'Woodsville Flyover',
     road: 'PIE (Pan Island Expressway)',
-    x: 410,
-    y: 340,
+    lat: 1.325,
+    lng: 103.865,
     image:
       'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
   },
   {
     id: '1302',
     name: 'Cam 1302',
-    location: 'Clementi Ave 6',
+    location: 'Clementi Ave 6 Exit',
     road: 'AYE (Ayer Rajah Expressway)',
-    x: 310,
-    y: 433,
+    lat: 1.315,
+    lng: 103.765,
     image:
       'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
+  },
+  {
+    id: '2701',
+    name: 'Cam 2701',
+    location: 'Woodlands Flyover',
+    road: 'BKE (Woodlands)',
+    lat: 1.4470,
+    lng: 103.7716,
+    image:
+      'https://images.data.gov.sg/api/traffic-images/2026/10/cebe342c-5cac-4533-ae3e-10a4562f5576.jpg'
   },
   {
     id: '1405',
     name: 'Cam 1405',
     location: 'Paya Lebar Flyover',
     road: 'KPE Tunnel',
-    x: 610,
-    y: 325,
-    image:
-      'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
-  },
-  {
-    id: '1802',
-    name: 'Cam 1802',
-    location: 'Marine Parade',
-    road: 'ECP (East Coast Parkway)',
-    x: 650,
-    y: 425,
+    lat: 1.328,
+    lng: 103.895,
     image:
       'https://lh3.googleusercontent.com/aida-public/AB6AXuBSpYO9z6YZL9QthM77C_s_RBa4i7HoSGCFMTpCVDH3SwoeJsMzsEfaQCea_eVtvW2NiFR4tkcD0Mxan4pc4I6BbK5hW1gqUOhQVxcZOPzn3vCyfwt5umWGnAcGv3rylJcghg1XrKDM69yAO6j0g55lvxK7OAyYXR12-FsHxPU4X--5uERq5jYPWsTqqOPU3Vr4J5unfZbN5RopyjMwXQGZShf--Hx50tE6gbuF08XlavbFdMVB-9K9'
   }
 ];
+
+// Available Map Tile Providers (Waze / Google Maps Navigation Style)
+const TILE_LAYERS = {
+  navigation: {
+    name: 'Navigation (Waze/Google)',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+  },
+  osm: {
+    name: 'OpenStreetMap Detailed',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors'
+  },
+  night: {
+    name: 'Night Navigation',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+  }
+};
 
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   incidents,
   selectedIncident,
   onSelectIncident,
   searchQuery = '',
-  isFocusedCorridor = false
+  isFocusedCorridor = false,
+  userLocation,
+  onCenterUserLocation
 }) => {
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const trafficLayerRef = useRef<L.LayerGroup | null>(null);
+  const userMarkerRef = useRef<L.CircleMarker | null>(null);
+  const userAccuracyRef = useRef<L.Circle | null>(null);
+
+  const [mapStyle, setMapStyle] = useState<'navigation' | 'osm' | 'night'>('navigation');
+  const [showTrafficFlow, setShowTrafficFlow] = useState<boolean>(true);
   const [showCameras, setShowCameras] = useState<boolean>(true);
   const [activeCamera, setActiveCamera] = useState<MapCamera | null>(null);
 
+  // Initialize Leaflet Map Instance
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    if (!mapInstanceRef.current) {
+      // Singapore center coordinates
+      const map = L.map(mapContainerRef.current, {
+        center: [1.3521, 103.8198],
+        zoom: 12,
+        minZoom: 10,
+        maxZoom: 18,
+        zoomControl: false,
+        attributionControl: false
+      });
+
+      // CartoDB Voyager Navigation Tiles
+      const initialLayer = L.tileLayer(TILE_LAYERS[mapStyle].url, {
+        subdomains: 'abcd',
+        maxZoom: 19
+      }).addTo(map);
+
+      tileLayerRef.current = initialLayer;
+      markersLayerRef.current = L.layerGroup().addTo(map);
+      trafficLayerRef.current = L.layerGroup().addTo(map);
+      mapInstanceRef.current = map;
+
+      // Invalidate size once rendered
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 200);
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update Tile Style Layer
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    if (tileLayerRef.current) {
+      mapInstanceRef.current.removeLayer(tileLayerRef.current);
+    }
+    const newLayer = L.tileLayer(TILE_LAYERS[mapStyle].url, {
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(mapInstanceRef.current);
+    tileLayerRef.current = newLayer;
+  }, [mapStyle]);
+
+  // Render Traffic Flow Lines on Map
+  useEffect(() => {
+    if (!trafficLayerRef.current || !mapInstanceRef.current) return;
+    trafficLayerRef.current.clearLayers();
+
+    if (showTrafficFlow) {
+      EXPRESSWAY_CORRIDORS.forEach((corridor) => {
+        // Shadow/glow line
+        L.polyline(corridor.coords, {
+          color: corridor.color,
+          weight: corridor.weight + 4,
+          opacity: 0.35,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(trafficLayerRef.current!);
+
+        // Core traffic speed line
+        const polyline = L.polyline(corridor.coords, {
+          color: corridor.color,
+          weight: corridor.weight,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(trafficLayerRef.current!);
+
+        polyline.bindTooltip(
+          `<div class="font-sans text-xs"><b>${corridor.name}</b><br/><span style="color:${corridor.color}">Flow: ${corridor.speed}</span></div>`,
+          { sticky: true }
+        );
+      });
+    }
+  }, [showTrafficFlow]);
+
+  // Render Incident Pins (Simple Icon Only) & Cameras
+  useEffect(() => {
+    if (!markersLayerRef.current || !mapInstanceRef.current) return;
+    markersLayerRef.current.clearLayers();
+
+    // 1. Render Incident Pins (Simple icon only!)
+    incidents.forEach((inc) => {
+      const isSelected = selectedIncident?.id === inc.id;
+      const isSevere = inc.severity === 'CRITICAL' || inc.severity === 'HEAVY';
+      const bgColor = isSevere ? '#DC2626' : '#D97706';
+
+      const customIcon = L.divIcon({
+        className: 'incident-map-marker',
+        html: `
+          <div class="relative flex items-center justify-center cursor-pointer group" style="width: 38px; height: 38px;">
+            <div class="absolute -inset-2.5 rounded-full" style="background-color: ${bgColor}; opacity: 0.25; animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+            <div class="relative z-10 w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-110" style="background-color: ${bgColor}; border: 2.5px solid #ffffff;">
+              <span class="material-symbols-outlined" style="color: #ffffff; font-size: 19px; font-variation-settings: 'FILL' 1;">
+                ${inc.icon}
+              </span>
+            </div>
+            ${
+              isSelected
+                ? `<div class="absolute -bottom-8 px-2 py-0.5 rounded shadow-md bg-white border border-gray-200 text-[11px] font-bold whitespace-nowrap text-gray-900 pointer-events-none z-20">
+                    ${inc.road} (${inc.currentSpeed} km/h)
+                  </div>`
+                : ''
+            }
+          </div>
+        `,
+        iconSize: [38, 38],
+        iconAnchor: [19, 19]
+      });
+
+      const marker = L.marker([inc.coordinates.lat, inc.coordinates.lng], {
+        icon: customIcon,
+        zIndexOffset: isSelected ? 1000 : 500
+      });
+
+      marker.on('click', () => {
+        onSelectIncident(inc);
+      });
+
+      marker.addTo(markersLayerRef.current!);
+    });
+
+    // 2. Render CCTV Camera Pins
+    if (showCameras) {
+      DEFAULT_MAP_CAMERAS.forEach((cam) => {
+        const camIcon = L.divIcon({
+          className: 'cctv-map-marker',
+          html: `
+            <div class="relative flex items-center justify-center cursor-pointer hover:scale-110 transition-transform" style="width: 28px; height: 28px;">
+              <div class="w-7 h-7 rounded-full bg-[#0037b0] border-2 border-white shadow-md flex items-center justify-center text-white">
+                <span class="material-symbols-outlined text-[15px]">videocam</span>
+              </div>
+            </div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+
+        const camMarker = L.marker([cam.lat, cam.lng], { icon: camIcon });
+        camMarker.on('click', () => {
+          setActiveCamera(cam);
+        });
+        camMarker.addTo(markersLayerRef.current!);
+      });
+    }
+  }, [incidents, selectedIncident, showCameras, onSelectIncident]);
+
+  // Render User Location (GPS Blue Dot with Pulsing Halo)
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+
+    if (userLocation) {
+      const latlng: [number, number] = [userLocation.lat, userLocation.lng];
+
+      if (userMarkerRef.current) {
+        userMarkerRef.current.setLatLng(latlng);
+      } else {
+        userMarkerRef.current = L.circleMarker(latlng, {
+          radius: 8,
+          fillColor: '#1d4ed8',
+          color: '#ffffff',
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 1
+        }).addTo(mapInstanceRef.current);
+      }
+
+      if (userLocation.accuracy) {
+        if (userAccuracyRef.current) {
+          userAccuracyRef.current.setLatLng(latlng);
+          userAccuracyRef.current.setRadius(userLocation.accuracy);
+        } else {
+          userAccuracyRef.current = L.circle(latlng, {
+            radius: userLocation.accuracy,
+            color: '#1d4ed8',
+            weight: 1,
+            fillColor: '#1d4ed8',
+            fillOpacity: 0.15
+          }).addTo(mapInstanceRef.current);
+        }
+      }
+    } else {
+      if (userMarkerRef.current && mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(userMarkerRef.current);
+        userMarkerRef.current = null;
+      }
+      if (userAccuracyRef.current && mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(userAccuracyRef.current);
+        userAccuracyRef.current = null;
+      }
+    }
+  }, [userLocation]);
+
+  // Recenter when an incident is selected
+  useEffect(() => {
+    if (selectedIncident && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo(
+        [selectedIncident.coordinates.lat, selectedIncident.coordinates.lng],
+        14,
+        { duration: 1.2 }
+      );
+    }
+  }, [selectedIncident]);
+
   const handleZoom = (factor: number) => {
-    setZoomLevel((prev) => Math.min(Math.max(prev * factor, 0.75), 2.5));
+    if (!mapInstanceRef.current) return;
+    if (factor > 1) {
+      mapInstanceRef.current.zoomIn();
+    } else {
+      mapInstanceRef.current.zoomOut();
+    }
   };
 
-  const resetZoom = () => {
-    setZoomLevel(1);
+  const handleFitSingapore = () => {
+    if (!mapInstanceRef.current) return;
+    mapInstanceRef.current.flyTo([1.3521, 103.8198], 12, { duration: 1 });
+  };
+
+  const handleCenterUser = () => {
+    if (userLocation && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([userLocation.lat, userLocation.lng], 15, { duration: 1 });
+    } else {
+      onCenterUserLocation?.();
+    }
   };
 
   return (
-    <div className="relative w-full h-full bg-[#E5EEFF]/40 overflow-hidden select-none flex items-center justify-center">
-      {/* Background Grid Pattern */}
-      <svg
-        className="absolute inset-0 w-full h-full pointer-events-none opacity-20"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <pattern id="urban-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#747686" strokeWidth="0.5" strokeDasharray="3 3" />
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#urban-grid)" />
-      </svg>
+    <div className="relative w-full h-full bg-[#f0f3f8] overflow-hidden select-none">
+      {/* Leaflet Real Interactive Map Container */}
+      <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Main Vector SVG Map of Singapore Expressways */}
-      <div
-        className="w-full h-full relative flex items-center justify-center transition-transform duration-300"
-        style={{ transform: `scale(${zoomLevel})` }}
-      >
-        <svg
-          viewBox="0 0 1000 620"
-          className="w-full h-full max-w-full max-h-full object-contain filter drop-shadow-sm"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <filter id="soft-shadow" x="-10%" y="-10%" width="120%" height="120%">
-              <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.1" />
-            </filter>
-          </defs>
-
-          {/* Singapore Main Island Coastline Shape */}
-          <path
-            d="M 120,310 C 140,260 210,230 290,210 C 370,190 470,180 570,180 C 670,180 770,220 870,260 C 930,285 960,330 920,380 C 880,430 790,440 680,450 C 580,460 480,480 380,470 C 270,460 170,440 120,380 Z"
-            fill="#F8FAFF"
-            stroke="#D3E4FE"
-            strokeWidth="2.5"
-          />
-
-          {/* Jurong Island & Sentosa Island */}
-          <path
-            d="M 230,480 C 260,470 310,480 300,515 C 270,540 220,530 200,510 Z"
-            fill="#F8FAFF"
-            stroke="#D3E4FE"
-            strokeWidth="1.5"
-          />
-          <path
-            d="M 490,485 C 530,480 560,500 550,520 C 520,530 480,520 480,500 Z"
-            fill="#F8FAFF"
-            stroke="#D3E4FE"
-            strokeWidth="1.5"
-          />
-
-          {/* Secondary Arterial Grid */}
-          <g opacity="0.25">
-            <path d="M 200,340 Q 360,310 520,310 T 840,280" stroke="#c4c5d7" strokeWidth="2" fill="none" />
-            <path d="M 280,440 Q 440,430 600,410 T 820,390" stroke="#c4c5d7" strokeWidth="2" fill="none" />
-            <path d="M 460,190 L 460,450" stroke="#c4c5d7" strokeWidth="1.5" strokeDasharray="4 4" fill="none" />
-            <path d="M 640,210 L 640,440" stroke="#c4c5d7" strokeWidth="1.5" strokeDasharray="4 4" fill="none" />
-          </g>
-
-          {/* === EXPRESSWAY FLOW LINES === */}
-
-          {/* 1. PIE (Pan Island Expressway) */}
-          <path
-            d="M 520,330 Q 720,320 890,290"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 450,335 Q 485,332 520,330"
-            fill="none"
-            stroke="#D97706"
-            strokeWidth="7"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 160,370 Q 300,350 450,335"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-
-          {/* 2. CTE (Central Expressway) */}
-          <path
-            d="M 530,190 L 525,270"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 525,270 L 520,345"
-            fill="none"
-            stroke="#DC2626"
-            strokeWidth={selectedIncident?.id?.includes('1') ? "9" : "7"}
-            strokeLinecap="round"
-          />
-          <path
-            d="M 520,345 L 515,420"
-            fill="none"
-            stroke="#D97706"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-
-          {/* 3. AYE (Ayer Rajah Expressway) */}
-          <path
-            d="M 140,400 L 260,425"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 260,425 L 360,440"
-            fill="none"
-            stroke="#DC2626"
-            strokeWidth={selectedIncident?.id?.includes('3') ? "9" : "7"}
-            strokeLinecap="round"
-          />
-          <path
-            d="M 360,440 Q 450,455 530,445"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-
-          {/* 4. ECP (East Coast Parkway) */}
-          <path
-            d="M 530,445 Q 690,430 880,310"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-
-          {/* 5. KPE Tunnel */}
-          <path
-            d="M 570,430 Q 600,340 610,230"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="5"
-            strokeDasharray="6 4"
-            strokeLinecap="round"
-          />
-
-          {/* 6. SLE (Seletar Expressway) */}
-          <path
-            d="M 350,215 Q 460,200 540,210"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-
-          {/* 7. BKE (Bukit Timah Expressway) */}
-          <path
-            d="M 360,185 L 375,320"
-            fill="none"
-            stroke="#16A34A"
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-
-          {/* Detour Route when corridor focused */}
-          {selectedIncident && (
-            <path
-              d="M 528,240 Q 420,290 390,380 T 420,440"
-              fill="none"
-              stroke="#1D4ED8"
-              strokeWidth="3.5"
-              strokeDasharray="8 6"
-              opacity="0.9"
-            />
-          )}
-
-          {/* Flow Particles (Live Telemetry Animation) */}
-          <circle cx="522" cy="305" r="3.5" fill="#ffffff">
-            <animate attributeName="cy" values="270;345" dur="3s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.2;1;0.2" dur="3s" repeatCount="indefinite" />
-          </circle>
-          <circle cx="310" cy="433" r="3.5" fill="#ffffff">
-            <animate attributeName="cx" values="265;355" dur="3.5s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.2;1;0.2" dur="3.5s" repeatCount="indefinite" />
-          </circle>
-
-          {/* Expressway Labels */}
-          <g fill="#0B1C30" fontFamily="Inter" fontSize="10" fontWeight="600">
-            <rect x="220" y="340" width="34" height="18" rx="4" fill="#FFFFFF" filter="url(#soft-shadow)" />
-            <text x="227" y="353">PIE</text>
-
-            <rect x="740" y="300" width="34" height="18" rx="4" fill="#FFFFFF" filter="url(#soft-shadow)" />
-            <text x="747" y="313">PIE</text>
-
-            <rect x="532" y="235" width="34" height="18" rx="4" fill="#FFFFFF" filter="url(#soft-shadow)" />
-            <text x="538" y="248">CTE</text>
-
-            <rect x="200" y="420" width="34" height="18" rx="4" fill="#FFFFFF" filter="url(#soft-shadow)" />
-            <text x="207" y="433">AYE</text>
-
-            <rect x="710" y="405" width="34" height="18" rx="4" fill="#FFFFFF" filter="url(#soft-shadow)" />
-            <text x="717" y="418">ECP</text>
-
-            <rect x="620" y="270" width="34" height="18" rx="4" fill="#FFFFFF" filter="url(#soft-shadow)" />
-            <text x="627" y="283">KPE</text>
-
-            <rect x="345" y="245" width="34" height="18" rx="4" fill="#FFFFFF" filter="url(#soft-shadow)" />
-            <text x="351" y="258">BKE</text>
-          </g>
-
-          {/* CCTV Camera Interactive Nodes */}
-          {showCameras &&
-            DEFAULT_MAP_CAMERAS.map((cam) => (
-              <g
-                key={cam.id}
-                className="cursor-pointer group"
-                onClick={() => setActiveCamera(cam)}
-              >
-                <circle
-                  cx={cam.x}
-                  cy={cam.y}
-                  r="9"
-                  fill="#0037B0"
-                  fillOpacity="0.2"
-                  className="group-hover:scale-125 transition-transform"
-                />
-                <circle
-                  cx={cam.x}
-                  cy={cam.y}
-                  r="5.5"
-                  fill="#0037B0"
-                  stroke="#ffffff"
-                  strokeWidth="1.5"
-                />
-              </g>
-            ))}
-
-          {/* === INCIDENT PINS (SIMPLE ICON ONLY) === */}
-          {incidents.map((inc) => {
-            const isSelected = selectedIncident?.id === inc.id;
-            const isRed = inc.severity === 'CRITICAL' || inc.severity === 'HEAVY';
-            const color = isRed ? '#DC2626' : '#D97706';
-
-            return (
-              <g
-                key={inc.id}
-                className="cursor-pointer transition-transform group"
-                onClick={() => onSelectIncident(inc)}
-              >
-                {/* Radar Waves for Active Incident */}
-                <circle
-                  cx={inc.coordinates.x}
-                  cy={inc.coordinates.y}
-                  r="20"
-                  fill={color}
-                  opacity="0.15"
-                >
-                  <animate attributeName="r" values="14;28" dur="1.8s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.3;0" dur="1.8s" repeatCount="indefinite" />
-                </circle>
-
-                <circle
-                  cx={inc.coordinates.x}
-                  cy={inc.coordinates.y}
-                  r={isSelected ? "17" : "14"}
-                  fill={color}
-                  stroke="#ffffff"
-                  strokeWidth="2.5"
-                  filter="url(#soft-shadow)"
-                  className="transition-all duration-200 group-hover:scale-110"
-                />
-
-                {/* Simple Icon Only in Pin Center */}
-                <text
-                  x={inc.coordinates.x}
-                  y={inc.coordinates.y + 4}
-                  textAnchor="middle"
-                  fill="#ffffff"
-                  fontFamily="Material Symbols Outlined"
-                  fontSize={isSelected ? "14" : "12"}
-                  fontWeight="bold"
-                  className="pointer-events-none select-none"
-                >
-                  {inc.icon === 'car_crash' ? 'car_crash' : inc.icon === 'warning' ? 'warning' : 'minor_crash'}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Selected Incident Floating Overlay Tag */}
-        {selectedIncident && (
-          <div
-            className="absolute z-20 pointer-events-none bg-white px-3 py-1.5 rounded-lg shadow-lg border border-[#c4c5d7]/40 flex flex-col items-center"
-            style={{
-              left: `${(selectedIncident.coordinates.x / 1000) * 100}%`,
-              top: `${(selectedIncident.coordinates.y / 620) * 100}%`,
-              transform: 'translate(-50%, -150%)'
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#DC2626] animate-ping"></span>
-              <span className="text-xs font-bold text-[#DC2626] whitespace-nowrap">
-                {selectedIncident.road} ({selectedIncident.currentSpeed} km/h)
-              </span>
-            </div>
-            <span className="text-[11px] text-[#434655] whitespace-nowrap">
-              {selectedIncident.direction}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Floating Tactical Map HUD Controls (Top-right) */}
+      {/* Floating Tactical Map HUD Controls (Top Right: Google Maps / Waze Layout) */}
       <div className="absolute top-16 md:top-4 right-3 md:right-4 z-20 flex flex-col gap-2">
-        <div className="bg-[#ffffff] p-1 rounded-xl shadow-md border border-[#c4c5d7]/30 flex flex-col gap-1">
+        {/* Zoom In / Out Pill */}
+        <div className="bg-[#ffffff] p-1 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex flex-col gap-1 backdrop-blur-md">
           <button
             onClick={() => handleZoom(1.2)}
             className="w-9 h-9 rounded-lg flex items-center justify-center text-[#0b1c30] hover:bg-[#eff4ff] active:scale-95 transition-all"
@@ -431,34 +529,89 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </button>
         </div>
 
+        {/* GPS Live Recenter Button (Google Maps Style Crosshairs) */}
         <button
-          onClick={resetZoom}
-          className="w-9 h-9 bg-[#ffffff] rounded-xl shadow-md border border-[#c4c5d7]/30 flex items-center justify-center text-[#0037b0] hover:bg-[#eff4ff] active:scale-95 transition-all"
-          title="Fit Singapore Island"
-          aria-label="Fit Singapore Island"
+          onClick={handleCenterUser}
+          className={`w-10 h-10 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex items-center justify-center transition-all active:scale-95 ${
+            userLocation
+              ? 'bg-[#ffffff] text-[#0037b0] hover:bg-[#eff4ff]'
+              : 'bg-[#ffffff] text-[#747686] hover:text-[#0037b0]'
+          }`}
+          title={userLocation ? 'Center on My GPS Location' : 'Enable My GPS Location'}
+          aria-label="My Location"
+        >
+          <span
+            className="material-symbols-outlined text-[22px]"
+            style={{ fontVariationSettings: userLocation ? "'FILL' 1" : "'FILL' 0" }}
+          >
+            my_location
+          </span>
+        </button>
+
+        {/* Fit Island Button */}
+        <button
+          onClick={handleFitSingapore}
+          className="w-10 h-10 bg-[#ffffff] rounded-xl shadow-lg border border-[#c4c5d7]/40 flex items-center justify-center text-[#0037b0] hover:bg-[#eff4ff] active:scale-95 transition-all"
+          title="Fit Singapore Island Overview"
+          aria-label="Fit Singapore Island Overview"
         >
           <span className="material-symbols-outlined text-[20px]">fit_screen</span>
         </button>
 
+        {/* Toggle Traffic Flow Layer */}
+        <button
+          onClick={() => setShowTrafficFlow(!showTrafficFlow)}
+          className={`w-10 h-10 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex items-center justify-center transition-all active:scale-95 ${
+            showTrafficFlow
+              ? 'bg-[#dce9ff] text-[#0037b0] font-semibold'
+              : 'bg-[#ffffff] text-[#747686] hover:bg-[#eff4ff]'
+          }`}
+          title="Toggle Waze Live Traffic Flow"
+          aria-label="Toggle Live Traffic Flow"
+        >
+          <span className="material-symbols-outlined text-[20px]">traffic</span>
+        </button>
+
+        {/* Toggle CCTV Layer */}
         <button
           onClick={() => setShowCameras(!showCameras)}
-          className={`w-9 h-9 rounded-xl shadow-md border border-[#c4c5d7]/30 flex items-center justify-center transition-all ${
-            showCameras ? 'bg-[#dce9ff] text-[#0037b0]' : 'bg-[#ffffff] text-[#434655] hover:bg-[#eff4ff]'
+          className={`w-10 h-10 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex items-center justify-center transition-all active:scale-95 ${
+            showCameras
+              ? 'bg-[#dce9ff] text-[#0037b0]'
+              : 'bg-[#ffffff] text-[#747686] hover:bg-[#eff4ff]'
           }`}
-          title="Toggle CCTV Nodes"
-          aria-label="Toggle CCTV Nodes"
+          title="Toggle Expressway Surveillance Cameras"
+          aria-label="Toggle Cameras"
         >
           <span className="material-symbols-outlined text-[20px]">videocam</span>
         </button>
+
+        {/* Map Style Switcher (Waze Clean / OSM / Night) */}
+        <div className="bg-[#ffffff] p-1 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex flex-col gap-1">
+          <button
+            onClick={() =>
+              setMapStyle(mapStyle === 'navigation' ? 'night' : mapStyle === 'night' ? 'osm' : 'navigation')
+            }
+            className="w-9 h-9 rounded-lg flex items-center justify-center text-[#565e74] hover:bg-[#eff4ff] active:scale-95 transition-all"
+            title={`Current Style: ${TILE_LAYERS[mapStyle].name}. Click to cycle.`}
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              {mapStyle === 'night' ? 'dark_mode' : mapStyle === 'osm' ? 'map' : 'layers'}
+            </span>
+          </button>
+        </div>
       </div>
 
-      {/* Floating Live Telemetry Legend Chip */}
-      <div className="absolute bottom-20 md:bottom-4 right-3 md:right-4 bg-[#ffffff]/95 backdrop-blur-sm px-3 py-2 rounded-xl shadow-md border border-[#c4c5d7]/30 flex flex-col gap-1.5 max-w-xs z-10">
-        <div className="flex items-center justify-between text-[11px] font-semibold text-[#434655] uppercase tracking-wider">
-          <span>Speed Telemetry</span>
+      {/* Floating Live Telemetry Legend Chip (Bottom Right) */}
+      <div className="absolute bottom-20 md:bottom-4 right-3 md:right-4 bg-[#ffffff]/95 backdrop-blur-md px-3 py-2 rounded-xl shadow-xl border border-[#c4c5d7]/40 flex flex-col gap-1.5 max-w-xs z-10 select-none">
+        <div className="flex items-center justify-between text-[11px] font-bold text-[#434655] uppercase tracking-wider">
+          <span className="flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px] text-[#0037b0]">traffic</span>
+            Waze Live Traffic Flow
+          </span>
           <span className="text-[#16A34A] flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse"></span>
-            LIVE
+            SYNCED
           </span>
         </div>
         <div className="flex items-center gap-3 text-xs text-[#0b1c30]">
@@ -477,7 +630,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
       </div>
 
-      {/* LIVE CAMERA POPUP MODAL (When tapping ANY camera node on the map) */}
+      {/* LIVE CAMERA POPUP MODAL */}
       {activeCamera && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
@@ -487,7 +640,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             className="relative bg-[#ffffff] rounded-2xl overflow-hidden shadow-2xl max-w-sm sm:max-w-md w-full border border-[#c4c5d7]/40 flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="p-3 bg-[#eff4ff] border-b border-[#c4c5d7]/30 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse"></span>
@@ -503,7 +655,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               </button>
             </div>
 
-            {/* Live Camera Snapshot */}
             <div className="relative w-full aspect-video bg-black flex items-center justify-center">
               <img
                 src={activeCamera.image}
@@ -521,7 +672,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               </div>
             </div>
 
-            {/* Footer with road info */}
             <div className="p-3 bg-white flex items-center justify-between text-xs text-[#565e74]">
               <span className="font-semibold text-[#0b1c30]">{activeCamera.road}</span>
               <span className="text-[11px] text-[#0037b0] font-medium">LTA TrafficScan Feed</span>

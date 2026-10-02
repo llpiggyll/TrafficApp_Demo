@@ -5,6 +5,7 @@ interface AlertsScreenProps {
   savedPlaces: SavedPlace[];
   onTogglePlace: (id: string) => void;
   onAddPlace: (newPlace: SavedPlace) => void;
+  onRemovePlace: (id: string) => void;
   onUpdateTimeWindow: (id: string, morning: string, evening: string) => void;
 }
 
@@ -12,6 +13,7 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({
   savedPlaces,
   onTogglePlace,
   onAddPlace,
+  onRemovePlace,
   onUpdateTimeWindow
 }) => {
   const [expandedPlaceId, setExpandedPlaceId] = useState<string | null>(savedPlaces[1]?.id || null);
@@ -19,6 +21,7 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({
   const [newPlaceName, setNewPlaceName] = useState<string>('');
   const [newPlaceCorridor, setNewPlaceCorridor] = useState<string>('SLE/TPE corridor');
   const [customIcon, setCustomIcon] = useState<string>('place');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const maxPlacesReached = savedPlaces.length >= 5;
 
@@ -44,6 +47,14 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({
     setNewPlaceName('');
     setIsAddingPlace(false);
     setExpandedPlaceId(newPlace.id);
+  };
+
+  const handleDelete = (id: string) => {
+    onRemovePlace(id);
+    setDeleteConfirmId(null);
+    if (expandedPlaceId === id) {
+      setExpandedPlaceId(null);
+    }
   };
 
   return (
@@ -131,10 +142,11 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({
           <div className="flex flex-col w-full divide-y divide-[#c4c5d7]/20" id="saved-places-list">
             {savedPlaces.map((place) => {
               const isExpanded = expandedPlaceId === place.id;
+              const isConfirmingDelete = deleteConfirmId === place.id;
 
               return (
                 <div key={place.id} className="flex flex-col transition-colors">
-                  {/* Row: Place Item + Single Toggle */}
+                  {/* Row: Place Item + Single Toggle + Quick Remove */}
                   <div
                     onClick={() => setExpandedPlaceId(isExpanded ? null : place.id)}
                     className={`flex items-center justify-between px-4 sm:px-6 py-3.5 cursor-pointer select-none transition-colors ${
@@ -170,22 +182,60 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({
                       </div>
                     </div>
 
-                    {/* Single Toggle Switch */}
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={place.enabled}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onTogglePlace(place.id);
-                      }}
-                      className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 flex items-center focus:outline-none flex-shrink-0 ${
-                        place.enabled ? 'bg-[#1d4ed8] justify-end' : 'bg-[#c4c5d7] justify-start'
-                      }`}
-                    >
-                      <span className="w-5 h-5 bg-white rounded-full shadow-md"></span>
-                    </button>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {/* Delete Trigger */}
+                      <button
+                        type="button"
+                        title={`Remove ${place.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirmId(isConfirmingDelete ? null : place.id);
+                        }}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-[#747686] hover:text-[#ba1a1a] hover:bg-[#ffdad6]/60 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+
+                      {/* Single Toggle Switch */}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={place.enabled}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTogglePlace(place.id);
+                        }}
+                        className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-200 flex items-center focus:outline-none flex-shrink-0 ${
+                          place.enabled ? 'bg-[#1d4ed8] justify-end' : 'bg-[#c4c5d7] justify-start'
+                        }`}
+                      >
+                        <span className="w-5 h-5 bg-white rounded-full shadow-md"></span>
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Inline Delete Confirmation Banner */}
+                  {isConfirmingDelete && (
+                    <div className="px-4 sm:px-6 py-2.5 bg-[#ffdad6]/40 border-t border-b border-[#ba1a1a]/20 flex items-center justify-between text-xs animate-fade-in">
+                      <span className="text-[#93000a] font-medium">Remove this place?</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="px-2.5 py-1 text-[#565e74] hover:text-[#0b1c30]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(place.id)}
+                          className="px-3 py-1 bg-[#ba1a1a] text-white rounded font-semibold hover:bg-[#93000a] shadow-sm"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Time of day selector shown ONLY after tapping a place */}
                   {isExpanded && place.timeWindows && (
@@ -247,6 +297,19 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({
                         <span className="font-bold text-[#a73400]">
                           {place.timeWindows.threshold}
                         </span>
+                      </div>
+
+                      {/* Remove place action in expanded view */}
+                      <div className="pt-1 flex items-center justify-between border-t border-[#c4c5d7]/30">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmId(place.id)}
+                          className="text-xs text-[#ba1a1a] hover:underline flex items-center gap-1 font-medium py-1"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">delete</span>
+                          <span>Remove this place</span>
+                        </button>
+                        <span className="text-[10px] text-[#565e74]">{place.corridor}</span>
                       </div>
                     </div>
                   )}
