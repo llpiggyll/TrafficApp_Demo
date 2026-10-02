@@ -10,6 +10,7 @@ interface InteractiveMapProps {
   isFocusedCorridor?: boolean;
   userLocation?: { lat: number; lng: number; accuracy?: number } | null;
   onCenterUserLocation?: () => void;
+  mapsApiKey?: string;
 }
 
 interface MapCamera {
@@ -224,25 +225,6 @@ const DEFAULT_MAP_CAMERAS: MapCamera[] = [
   }
 ];
 
-// Available Map Tile Providers (Waze / Google Maps Navigation Style)
-const TILE_LAYERS = {
-  navigation: {
-    name: 'Navigation (Waze/Google)',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-  },
-  osm: {
-    name: 'OpenStreetMap Detailed',
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap contributors'
-  },
-  night: {
-    name: 'Night Navigation',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-  }
-};
-
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   incidents,
   selectedIncident,
@@ -250,7 +232,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   searchQuery = '',
   isFocusedCorridor = false,
   userLocation,
-  onCenterUserLocation
+  onCenterUserLocation,
+  mapsApiKey
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -260,29 +243,74 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const userMarkerRef = useRef<L.CircleMarker | null>(null);
   const userAccuracyRef = useRef<L.Circle | null>(null);
 
-  const [mapStyle, setMapStyle] = useState<'navigation' | 'osm' | 'night'>('navigation');
+  const [mapStyle, setMapStyle] = useState<string>('navigation');
   const [showTrafficFlow, setShowTrafficFlow] = useState<boolean>(true);
   const [showCameras, setShowCameras] = useState<boolean>(true);
   const [activeCamera, setActiveCamera] = useState<MapCamera | null>(null);
+
+  // Dynamic Tile Layers Definition with Google Maps Platform Support
+  const getTileConfig = (styleKey: string, key?: string) => {
+    const hasGoogleKey = Boolean(key && key.trim().length > 0);
+
+    if (hasGoogleKey && styleKey === 'google_traffic') {
+      return {
+        url: `https://mt{s}.google.com/vt/lyrs=m,traffic&x={x}&y={y}&z={z}&key=${key}`,
+        subdomains: ['0', '1', '2', '3']
+      };
+    }
+
+    if (hasGoogleKey && styleKey === 'google_satellite') {
+      return {
+        url: `https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&key=${key}`,
+        subdomains: ['0', '1', '2', '3']
+      };
+    }
+
+    if (styleKey === 'night') {
+      return {
+        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        subdomains: 'abcd'
+      };
+    }
+
+    if (styleKey === 'osm') {
+      return {
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        subdomains: 'abc'
+      };
+    }
+
+    // Default clean navigation tiles (Voyager)
+    return {
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      subdomains: 'abcd'
+    };
+  };
+
+  // If a Google Maps API Key is provided, auto-switch to Google Maps Live Traffic
+  useEffect(() => {
+    if (mapsApiKey && mapsApiKey.trim().length > 0) {
+      setMapStyle('google_traffic');
+    }
+  }, [mapsApiKey]);
 
   // Initialize Leaflet Map Instance
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
     if (!mapInstanceRef.current) {
-      // Singapore center coordinates
       const map = L.map(mapContainerRef.current, {
         center: [1.3521, 103.8198],
         zoom: 12,
         minZoom: 10,
-        maxZoom: 18,
+        maxZoom: 19,
         zoomControl: false,
         attributionControl: false
       });
 
-      // CartoDB Voyager Navigation Tiles
-      const initialLayer = L.tileLayer(TILE_LAYERS[mapStyle].url, {
-        subdomains: 'abcd',
+      const config = getTileConfig(mapStyle, mapsApiKey);
+      const initialLayer = L.tileLayer(config.url, {
+        subdomains: config.subdomains,
         maxZoom: 19
       }).addTo(map);
 
@@ -291,7 +319,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       trafficLayerRef.current = L.layerGroup().addTo(map);
       mapInstanceRef.current = map;
 
-      // Invalidate size once rendered
       setTimeout(() => {
         map.invalidateSize();
       }, 200);
@@ -311,12 +338,13 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     if (tileLayerRef.current) {
       mapInstanceRef.current.removeLayer(tileLayerRef.current);
     }
-    const newLayer = L.tileLayer(TILE_LAYERS[mapStyle].url, {
-      subdomains: 'abcd',
+    const config = getTileConfig(mapStyle, mapsApiKey);
+    const newLayer = L.tileLayer(config.url, {
+      subdomains: config.subdomains,
       maxZoom: 19
     }).addTo(mapInstanceRef.current);
     tileLayerRef.current = newLayer;
-  }, [mapStyle]);
+  }, [mapStyle, mapsApiKey]);
 
   // Render Traffic Flow Lines on Map
   useEffect(() => {
@@ -356,7 +384,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     if (!markersLayerRef.current || !mapInstanceRef.current) return;
     markersLayerRef.current.clearLayers();
 
-    // 1. Render Incident Pins (Simple icon only!)
+    // 1. Render Incident Pins (Simple icon only)
     incidents.forEach((inc) => {
       const isSelected = selectedIncident?.id === inc.id;
       const isSevere = inc.severity === 'CRITICAL' || inc.severity === 'HEAVY';
@@ -501,12 +529,23 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     }
   };
 
+  const cycleMapStyle = () => {
+    const hasGoogleKey = Boolean(mapsApiKey && mapsApiKey.trim().length > 0);
+    const styles = hasGoogleKey
+      ? ['google_traffic', 'google_satellite', 'navigation', 'night', 'osm']
+      : ['navigation', 'night', 'osm'];
+
+    const currentIndex = styles.indexOf(mapStyle);
+    const nextStyle = styles[(currentIndex + 1) % styles.length];
+    setMapStyle(nextStyle);
+  };
+
   return (
     <div className="relative w-full h-full bg-[#f0f3f8] overflow-hidden select-none">
       {/* Leaflet Real Interactive Map Container */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Floating Tactical Map HUD Controls (Top Right: Google Maps / Waze Layout) */}
+      {/* Floating Tactical Map HUD Controls */}
       <div className="absolute top-16 md:top-4 right-3 md:right-4 z-20 flex flex-col gap-2">
         {/* Zoom In / Out Pill */}
         <div className="bg-[#ffffff] p-1 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex flex-col gap-1 backdrop-blur-md">
@@ -529,7 +568,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </button>
         </div>
 
-        {/* GPS Live Recenter Button (Google Maps Style Crosshairs) */}
+        {/* GPS Live Recenter Button */}
         <button
           onClick={handleCenterUser}
           className={`w-10 h-10 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex items-center justify-center transition-all active:scale-95 ${
@@ -586,32 +625,36 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           <span className="material-symbols-outlined text-[20px]">videocam</span>
         </button>
 
-        {/* Map Style Switcher (Waze Clean / OSM / Night) */}
+        {/* Map Style Switcher */}
         <div className="bg-[#ffffff] p-1 rounded-xl shadow-lg border border-[#c4c5d7]/40 flex flex-col gap-1">
           <button
-            onClick={() =>
-              setMapStyle(mapStyle === 'navigation' ? 'night' : mapStyle === 'night' ? 'osm' : 'navigation')
-            }
+            onClick={cycleMapStyle}
             className="w-9 h-9 rounded-lg flex items-center justify-center text-[#565e74] hover:bg-[#eff4ff] active:scale-95 transition-all"
-            title={`Current Style: ${TILE_LAYERS[mapStyle].name}. Click to cycle.`}
+            title={`Style: ${mapStyle}. Click to switch.`}
           >
             <span className="material-symbols-outlined text-[18px]">
-              {mapStyle === 'night' ? 'dark_mode' : mapStyle === 'osm' ? 'map' : 'layers'}
+              {mapStyle.includes('satellite')
+                ? 'satellite'
+                : mapStyle === 'night'
+                ? 'dark_mode'
+                : mapStyle.includes('google')
+                ? 'public'
+                : 'layers'}
             </span>
           </button>
         </div>
       </div>
 
-      {/* Floating Live Telemetry Legend Chip (Bottom Right) */}
+      {/* Floating Live Telemetry Legend Chip */}
       <div className="absolute bottom-20 md:bottom-4 right-3 md:right-4 bg-[#ffffff]/95 backdrop-blur-md px-3 py-2 rounded-xl shadow-xl border border-[#c4c5d7]/40 flex flex-col gap-1.5 max-w-xs z-10 select-none">
         <div className="flex items-center justify-between text-[11px] font-bold text-[#434655] uppercase tracking-wider">
           <span className="flex items-center gap-1">
             <span className="material-symbols-outlined text-[14px] text-[#0037b0]">traffic</span>
-            Waze Live Traffic Flow
+            {mapsApiKey ? 'Google Maps Traffic' : 'Waze Live Traffic'}
           </span>
           <span className="text-[#16A34A] flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse"></span>
-            SYNCED
+            LIVE
           </span>
         </div>
         <div className="flex items-center gap-3 text-xs text-[#0b1c30]">

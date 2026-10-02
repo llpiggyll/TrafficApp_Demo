@@ -8,6 +8,8 @@ import healthHandler from './api/health.js';
 import incidentsHandler from './api/incidents.js';
 // @ts-ignore
 import trafficImagesHandler from './api/traffic-images.js';
+// @ts-ignore
+import mapsConfigHandler from './api/maps-config.js';
 
 dotenv.config();
 
@@ -25,6 +27,7 @@ async function startServer() {
   app.all('/api/health', (req, res) => healthHandler(req, res));
   app.all('/api/incidents', (req, res) => incidentsHandler(req, res));
   app.all('/api/traffic-images', (req, res) => trafficImagesHandler(req, res));
+  app.all('/api/maps-config', (req, res) => mapsConfigHandler(req, res));
 
   if (isDev) {
     const { createServer: createViteServer } = await import('vite');

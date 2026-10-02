@@ -26,6 +26,12 @@ export default async function handler(req, res) {
     ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)} (${apiKey.length} chars)`
     : null;
 
+  const mapsKey = process.env.MAPS_DEMO_KEY || process.env.VITE_MAPS_DEMO_KEY;
+  const hasMapsKey = Boolean(mapsKey && mapsKey.trim().length > 0);
+  const maskedMapsKey = hasMapsKey
+    ? `${mapsKey.slice(0, 4)}...${mapsKey.slice(-4)} (${mapsKey.length} chars)`
+    : null;
+
   const healthData = {
     status: 'healthy',
     service: 'SG Traffic Flow & Incident Telemetry API Gateway',
@@ -36,6 +42,11 @@ export default async function handler(req, res) {
       configured: hasKey,
       preview: maskedKey,
       status: hasKey ? 'READY' : 'MISSING (Configure LTA_ACCOUNT_KEY in Vercel Environment Variables)'
+    },
+    maps_demo_key: {
+      configured: hasMapsKey,
+      preview: maskedMapsKey,
+      status: hasMapsKey ? 'READY' : 'PENDING (Add MAPS_DEMO_KEY in Vercel Environment Variables)'
     },
     endpoints: {
       incidents: {
@@ -49,6 +60,11 @@ export default async function handler(req, res) {
         method: 'GET',
         description: 'LTA DataMall Traffic Images v2 proxy with fallback camera feeds',
         upstream: 'https://datamall2.mytransport.sg/ltaodataservice/Traffic-Imagesv2'
+      },
+      maps_config: {
+        path: '/api/maps-config',
+        method: 'GET',
+        description: 'Google Maps Platform configuration delivery'
       },
       health: {
         path: '/api/health',

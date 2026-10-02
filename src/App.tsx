@@ -27,6 +27,13 @@ export default function App() {
   const [isMobileSheetExpanded, setIsMobileSheetExpanded] = useState<boolean>(false);
   const [secondsAgo, setSecondsAgo] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [mapsApiKey, setMapsApiKey] = useState<string>(() => {
+    return (
+      (import.meta as any).env?.VITE_MAPS_DEMO_KEY ||
+      (import.meta as any).env?.MAPS_DEMO_KEY ||
+      ''
+    );
+  });
 
   // User Geolocation State
   const [userLocation, setUserLocation] = useState<{
@@ -42,6 +49,20 @@ export default function App() {
     return localStorage.getItem('sg_location_dismissed') !== 'true';
   });
   const [locationError, setLocationError] = useState<string | null>(null);
+
+  // Fetch Google Maps API Key from /api/maps-config (Vercel serverless / Express)
+  useEffect(() => {
+    fetch('/api/maps-config')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.key) {
+          setMapsApiKey(data.key);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load maps-config:', err);
+      });
+  }, []);
 
   // Save places to localStorage
   useEffect(() => {
@@ -288,6 +309,7 @@ export default function App() {
                   isFocusedCorridor={!!selectedIncident}
                   userLocation={userLocation}
                   onCenterUserLocation={() => requestUserLocation(true)}
+                  mapsApiKey={mapsApiKey}
                 />
               </div>
 
