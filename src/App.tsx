@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ScreenType, Incident, SavedPlace } from './types/traffic';
 import { INITIAL_INCIDENTS, INITIAL_SAVED_PLACES } from './data/mockData';
 import { Navigation } from './components/Navigation';
@@ -8,14 +8,34 @@ import { NearestIncidentsList } from './components/NearestIncidentsList';
 import { IncidentDetail } from './components/IncidentDetail';
 import { AlertsScreen } from './components/AlertsScreen';
 import { HelpScreen } from './components/HelpScreen';
+import { fetchLtaIncidents } from './services/ltaService';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('map');
-  const [incidents] = useState<Incident[]>(INITIAL_INCIDENTS);
+  const [incidents, setIncidents] = useState<Incident[]>(INITIAL_INCIDENTS);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>(INITIAL_SAVED_PLACES);
   const [isMobileSheetExpanded, setIsMobileSheetExpanded] = useState<boolean>(false);
+  const [dataSource, setDataSource] = useState<'live' | 'fallback'>('fallback');
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadData() {
+      const result = await fetchLtaIncidents();
+      if (isMounted && result.incidents.length > 0) {
+        setIncidents(result.incidents);
+        setDataSource(result.source);
+      }
+    }
+    loadData();
+    // Poll every 60s
+    const interval = setInterval(loadData, 60000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Filter incidents by search query
   const filteredIncidents = incidents.filter((inc) => {
